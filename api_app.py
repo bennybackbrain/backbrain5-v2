@@ -12,8 +12,13 @@ app = FastAPI()
 WEBDAV_URL = os.getenv("WEBDAV_URL")
 WEBDAV_USERNAME = os.getenv("WEBDAV_USERNAME")
 WEBDAV_PASSWORD = os.getenv("WEBDAV_PASSWORD")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+SUMMARIZER_MODEL = os.getenv("SUMMARIZER_MODEL", "gpt-4.1.1")
 INBOX_DIR = "BACKBRAIN5.2_V2/01_inbox"
 SUMMARIES_DIR = "BACKBRAIN5.2_V2/summaries"
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("backbrain5-v2")
 
 # MODELS
 class WriteFileRequest(BaseModel):
@@ -24,6 +29,8 @@ class WriteFileRequest(BaseModel):
 class WriteFileResponse(BaseModel):
     ok: bool
     path: str
+    summary: Optional[str] = None
+    error: Optional[str] = None
 
 class ReadFileResponse(BaseModel):
     filename: str
@@ -78,8 +85,34 @@ def webdav_write(kind: str, filename: str, content: str) -> str:
         raise HTTPException(status_code=502, detail=f"WebDAV write failed: {resp.status_code}")
     return path
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("backbrain5-v2")
+def generate_summary(text: str) -> str:
+    if not OPENAI_API_KEY:
+        logger.warning("No OPENAI_API_KEY set, using dummy summary.")
+        return f"[Summary] {text[:50]}..."
+    import requests
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    prompt = f"Fasse folgenden Text prägnant zusammen:\n---\n{text}\n---"
+    data = {
+        "model": SUMMARIZER_MODEL,
+        "messages": [
+            {"role": "system", "content": "Du bist ein prägnanter deutscher Textzusammenfasser."},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 256
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=data, timeout=20)
+        resp.raise_for_status()
+        result = resp.json()
+        summary = result["choices"][0]["message"]["content"].strip()
+        return summary
+    except Exception as e:
+        logger.error(f"GPT-API error: {e}")
+        return f"[Summary-Error] {str(e)}"
 
 # ROUTES
 @app.get("/health")
@@ -91,16 +124,16 @@ def write_file(req: WriteFileRequest):
     try:
         path = webdav_write(req.kind, req.filename, req.content)
         logger.info(f"File written: {path}")
-        # Automatische Summary-Generierung bei entries
+        summary_text = None
         if req.kind == "entry":
-            summary_text = f"[Summary for {req.filename}] {req.content[:50]}..."  # Dummy, GPT folgt
+            summary_text = generate_summary(req.content)
             summary_name = req.filename.replace('.txt', '_summary.txt')
             try:
                 summary_path = webdav_write("summary", summary_name, summary_text)
                 logger.info(f"Summary written: {summary_path}")
             except Exception as e:
                 logger.error(f"Summary write failed: {e}")
-        return WriteFileResponse(ok=True, path=path)
+        return WriteFileResponse(ok=True, path=path, summary=summary_text)
     except HTTPException as e:
         logger.error(f"Write error: {e.detail}")
         return JSONResponse(status_code=e.status_code, content={"ok": False, "error": e.detail})
