@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 import requests
+import logging
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
@@ -76,6 +78,9 @@ def webdav_write(kind: str, filename: str, content: str) -> str:
         raise HTTPException(status_code=502, detail=f"WebDAV write failed: {resp.status_code}")
     return path
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("backbrain5-v2")
+
 # ROUTES
 @app.get("/health")
 def health():
@@ -83,8 +88,25 @@ def health():
 
 @app.post("/write-file", response_model=WriteFileResponse)
 def write_file(req: WriteFileRequest):
-    path = webdav_write(req.kind, req.filename, req.content)
-    return WriteFileResponse(ok=True, path=path)
+    try:
+        path = webdav_write(req.kind, req.filename, req.content)
+        logger.info(f"File written: {path}")
+        # Automatische Summary-Generierung bei entries
+        if req.kind == "entry":
+            summary_text = f"[Summary for {req.filename}] {req.content[:50]}..."  # Dummy, GPT folgt
+            summary_name = req.filename.replace('.txt', '_summary.txt')
+            try:
+                summary_path = webdav_write("summary", summary_name, summary_text)
+                logger.info(f"Summary written: {summary_path}")
+            except Exception as e:
+                logger.error(f"Summary write failed: {e}")
+        return WriteFileResponse(ok=True, path=path)
+    except HTTPException as e:
+        logger.error(f"Write error: {e.detail}")
+        return JSONResponse(status_code=e.status_code, content={"ok": False, "error": e.detail})
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 @app.get("/read-file", response_model=ReadFileResponse)
 def read_file(filename: str, kind: Optional[str] = "entry"):
