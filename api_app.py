@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import os
 import requests
 import logging
 from fastapi.responses import JSONResponse
+import traceback
 
 app = FastAPI()
 
@@ -165,3 +166,16 @@ def list_files(kind: Optional[str] = "entry"):
 def get_all_summaries():
     files = webdav_list("summary")
     return SummariesResponse(summaries=files)
+
+@app.exception_handler(Exception)
+def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    logger.error(f"Global Exception: {exc}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "ok": False,
+            "error": str(exc),
+            "traceback": tb
+        }
+    )
