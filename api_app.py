@@ -122,17 +122,27 @@ def health():
 @app.post("/write-file", response_model=WriteFileResponse)
 def write_file(req: WriteFileRequest):
     try:
-        path = webdav_write(req.kind, req.filename, req.content)
-        logger.info(f"File written: {path}")
+        path = None
         summary_text = None
+        try:
+            path = webdav_write(req.kind, req.filename, req.content)
+            logger.info(f"File written: {path}")
+        except Exception as e:
+            logger.error(f"WebDAV write failed: {e}")
+            return JSONResponse(status_code=500, content={"ok": False, "error": f"WebDAV write failed: {str(e)}"})
         if req.kind == "entry":
-            summary_text = generate_summary(req.content)
+            try:
+                summary_text = generate_summary(req.content)
+            except Exception as e:
+                logger.error(f"Summary generation failed: {e}")
+                summary_text = f"[Summary-Error] {str(e)}"
             summary_name = req.filename.replace('.txt', '_summary.txt')
             try:
                 summary_path = webdav_write("summary", summary_name, summary_text)
                 logger.info(f"Summary written: {summary_path}")
             except Exception as e:
                 logger.error(f"Summary write failed: {e}")
+                return JSONResponse(status_code=500, content={"ok": False, "error": f"Summary write failed: {str(e)}"})
         return WriteFileResponse(ok=True, path=path, summary=summary_text)
     except HTTPException as e:
         logger.error(f"Write error: {e.detail}")
