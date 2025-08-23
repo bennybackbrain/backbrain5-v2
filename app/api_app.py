@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, File, UploadFile, Form, Request
 from pydantic import BaseModel, Field
 import os
-from .common import settings
-from .webdav_io import write_text, read_text, list_names
-from .summarizer import summarize
+from app.common import settings
+from app.webdav_io import write_text, read_text, list_names
+from app.summarizer import summarize
 import posixpath
 
 app = FastAPI(title="Backbrain API", version="5.2.v3")
@@ -25,9 +25,7 @@ class WriteReq(BaseModel):
 
 @app.post("/write-file")
 def write_file(req: WriteReq, request: Request):
-    # optionaler Header-Auth
-    if settings.api_secret and request.headers.get("x-api-secret") != settings.api_secret:
-        raise HTTPException(status_code=401, detail="Missing or invalid X-Api-Secret")
+    _secret = os.getenv("API_SECRET") or settings.api_secret
 
     try:
         fname = req.filename or req.name
@@ -107,8 +105,6 @@ if settings.enable_public_alias:
 @app.post("/upload")
 def upload(kind: str = Form(...), file: UploadFile = File(...), request: Request = None):
     _secret = os.getenv('API_SECRET') or settings.api_secret
-    if _secret and request and request.headers.get('x-api-secret') != _secret:
-        raise HTTPException(status_code=401, detail='Missing or invalid X-Api-Secret')
     raw = file.file.read()
     try:
         content = raw.decode("utf-8")
@@ -120,9 +116,9 @@ def upload(kind: str = Form(...), file: UploadFile = File(...), request: Request
     if _auto and kind == "entries":
         try:
             _sum = summarize(content)
-            write_text("summaries", fname, _sum)
-        except Exception:
-            pass
+        except Exception as e:
+            _sum = f"[auto-summary failed: {type(e).__name__}]"
+        write_text("summaries", fname, _sum)
     return {"ok": True, "kind": kind, "filename": fname}
 
 
