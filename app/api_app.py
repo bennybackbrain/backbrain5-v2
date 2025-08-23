@@ -1,28 +1,49 @@
-from fastapi import FastAPI, Query, Body, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
 from .common import settings
 from .webdav_io import write_text, read_text, list_names
+import posixpath
 
-app = FastAPI(title="Backbrain API", version="5.2.v2")
+app = FastAPI(title="Backbrain API", version="5.2.v3")
 
 @app.get("/health")
 def health():
-    return {"status":"ok","public": bool(settings.enable_public_alias)}
+    return {"status": "ok", "public": bool(settings.enable_public_alias)}
 
 class WriteReq(BaseModel):
     kind: str = Field(pattern="^(entries|summaries)$")
-    name: str
+    # Beide akzeptieren: 'name' ODER 'filename'
+    name: str | None = None
+    filename: str | None = None
     content: str
 
 @app.post("/write-file")
 def write_file(req: WriteReq):
     try:
-        write_text(req.kind, req.name, req.content)
-        if getattr(settings,"auto_summary_on_write", False) and req.kind == "entries":
-            # Platzhalter: echte Auto-Summary kann später hier rein
+        fname = req.filename or req.name
+        if not fname:
+            raise HTTPException(status_code=422, detail="Either 'filename' or 'name' is required")
+        write_text(req.kind, fname, req.content)
+
+        base = settings.inbox_dir if req.kind == "entries" else settings.summaries_dir
+        path = posixpath.join(base, fname)
+
+        summary = None
+        if getattr(settings, "auto_summary_on_write", False) and req.kind == "entries":
+            # Platzhalter für spätere Auto-Summary
             pass
-        return {"status":"created","kind":req.kind,"name":req.name}
+
+        # Einheitliche Antwort (Render-Stil + etwas extra)
+        return {
+            "ok": True,
+            "path": path,
+            "kind": req.kind,
+            "filename": fname,
+            "summary": summary,
+            "error": None,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         msg = str(e)
         if "not found" in msg.lower():
@@ -30,10 +51,18 @@ def write_file(req: WriteReq):
         raise HTTPException(status_code=400, detail=msg)
 
 @app.get("/read-file")
-def read_file(name: str = Query(...), kind: str = Query(..., pattern="^(entries|summaries)$")):
+def read_file(
+    kind: str = Query(..., pattern="^(entries|summaries)$"),
+    name: str | None = Query(None),
+    filename: str | None = Query(None),
+):
     try:
-        content = read_text(kind, name)
-        return PlainTextResponse(content, media_type="text/plain; charset=utf-8")
+        fname = filename or name
+        if not fname:
+            raise HTTPException(status_code=422, detail="Either 'filename' or 'name' is required")
+        content = read_text(kind, fname)
+        # Einheitliche JSON-Antwort
+        return {"filename": fname, "content": content}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
@@ -53,12 +82,13 @@ def list_files(kind: str = Query(..., pattern="^(entries|summaries)$"), limit: i
 if settings.enable_public_alias:
     from fastapi import APIRouter
     pub = APIRouter()
-    @pub.get("/public/health")       # GET
+    @pub.get("/public/health")
     def p_health(): return health()
-    @pub.get("/public/list-files")   # GET
+    @pub.get("/public/list-files")
     def p_list(kind: str, limit: int = 200): return list_files(kind, limit)
-    @pub.get("/public/read-file")    # GET
-    def p_read(name: str, kind: str): return read_file(name, kind)
-    @pub.post("/public/write-file")  # POST
+    @pub.get("/public/read-file")
+    def p_read(kind: str, name: str | None = None, filename: str | None = None):
+        return read_file(kind=kind, name=name, filename=filename)
+    @pub.post("/public/write-file")
     def p_write(req: WriteReq): return write_file(req)
     app.include_router(pub)
