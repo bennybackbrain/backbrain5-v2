@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     webdav_username: str
     webdav_password: str
 
-    openai_api_key: str
+    openai_api_key: str | None = None
     summary_model: str | None = None
     summary_words: int | None = None
 
