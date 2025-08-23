@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
+import os
 from .common import settings
 from .webdav_io import write_text, read_text, list_names
 import posixpath
@@ -8,7 +9,11 @@ app = FastAPI(title="Backbrain API", version="5.2.v3")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "public": bool(settings.enable_public_alias)}
+    return {
+        'status': 'ok',
+        'public': bool(settings.enable_public_alias),
+        'auth': bool(os.getenv('API_SECRET') or settings.api_secret),
+    }
 
 class WriteReq(BaseModel):
     kind: str = Field(pattern="^(entries|summaries)$")
