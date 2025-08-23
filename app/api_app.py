@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 import os
 from .common import settings
 from .webdav_io import write_text, read_text, list_names
+from .summarizer import summarize
 import posixpath
 
 app = FastAPI(title="Backbrain API", version="5.2.v3")
@@ -101,3 +102,58 @@ if settings.enable_public_alias:
     @pub.post("/public/write-file")
     def p_write(req: WriteReq): return write_file(req)
     app.include_router(pub)
+
+
+@app.post("/upload")
+def upload(kind: str = Form(...), file: UploadFile = File(...), request: Request = None):
+    _secret = os.getenv('API_SECRET') or settings.api_secret
+    if _secret and request and request.headers.get('x-api-secret') != _secret:
+        raise HTTPException(status_code=401, detail='Missing or invalid X-Api-Secret')
+    raw = file.file.read()
+    try:
+        content = raw.decode("utf-8")
+    except Exception:
+        content = raw.decode("latin-1", errors="replace")
+    fname = file.filename
+    write_text(kind, fname, content)
+    _auto = (os.getenv('AUTO_SUMMARY_ON_WRITE','').lower() in ('1','true','yes')) or getattr(settings,'auto_summary_on_write', False)
+    if _auto and kind == "entries":
+        try:
+            _sum = summarize(content)
+            write_text("summaries", fname, _sum)
+        except Exception:
+            pass
+    return {"ok": True, "kind": kind, "filename": fname}
+
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/ui", include_in_schema=False)
+def ui():
+    return HTMLResponse("""<!doctype html>
+<html><head><meta charset=utf-8><title>Backbrain Upload</title>
+<style>
+body{font-family:system-ui;padding:24px}
+#drop{border:2px dashed #888;padding:40px;text-align:center;border-radius:12px}
+#drop.drag{border-color:#000}
+</style></head>
+<body>
+<h1>Drag & Drop Upload</h1>
+<p>Ziehen Sie Dateien hierher. <code>kind</code> = <b>entries</b> oder <b>summaries</b>.</p>
+<label>Kind: <select id="kind"><option>entries</option><option>summaries</option></select></label>
+<div id="drop">Dateien hier ablegen…</div>
+<pre id="out"></pre>
+<script>
+const drop=document.getElementById('drop'), out=document.getElementById('out'), kindSel=document.getElementById('kind');
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('drag')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('drag')}));
+drop.addEventListener('drop', async ev=>{
+  const files=[...ev.dataTransfer.files];
+  out.textContent='';
+  for(const f of files){
+    const fd=new FormData(); fd.append('kind', kindSel.value); fd.append('file', f);
+    const res=await fetch('/upload',{method:'POST',body:fd});
+    out.textContent+= (await res.text()) + '\n';
+  }
+});
+</script></body></html>""")
