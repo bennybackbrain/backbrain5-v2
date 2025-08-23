@@ -18,7 +18,11 @@ class WriteReq(BaseModel):
     content: str
 
 @app.post("/write-file")
-def write_file(req: WriteReq):
+def write_file(req: WriteReq, request: Request):
+    # optionaler Header-Auth
+    if settings.api_secret and request.headers.get("x-api-secret") != settings.api_secret:
+        raise HTTPException(status_code=401, detail="Missing or invalid X-Api-Secret")
+
     try:
         fname = req.filename or req.name
         if not fname:
