@@ -1,9 +1,3 @@
-import os
-from fastapi import Request, HTTPException
-
-API_SECRET = os.getenv("API_SECRET", "").strip()
-
-
 def _maybe_check_api_secret(request: Request) -> None:
     """
     Prüft den API-Secret-Header.
@@ -13,6 +7,7 @@ def _maybe_check_api_secret(request: Request) -> None:
         # kein Secret gesetzt → alles erlauben
         return
 
+    # Primär: X-Api-Secret
     auth = request.headers.get("X-Api-Secret")
 
     if not auth:
