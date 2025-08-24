@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 # Projekt-Module
 from app.common import settings  # enthält enable_public_alias, inbox_dir, summaries_dir, auto_summary_on_write
 from app.webdav_io import write_text, read_text, list_names  # synchron, WebDAV-gestützt
-from app.mini_agent import summarize  # nutzt OPENAI_API_KEY + SUMMARY_MODEL/WORDS aus ENV
+from app.mini_agent import summarize
+from app.pdf_utils import extract_text_from_pdf_bytes  # nutzt OPENAI_API_KEY + SUMMARY_MODEL/WORDS aus ENV
 
 app = FastAPI(title="Backbrain API", version="5.2.v3-clean")
 
@@ -114,18 +115,43 @@ def upload(kind: str = Form(...), file: UploadFile = File(...), request: Request
     if request is not None:
         _maybe_check_api_secret(request)
 
+    fname = file.filename or "upload.bin"
     raw = file.file.read()
+    ctype = getattr(file, "content_type", "") or ""
+
+    # PDF?
+    if fname.lower().endswith(".pdf") or ctype == "application/pdf":
+        from app.webdav_io import write_blob, write_text
+        # Original speichern (binary)
+        write_blob("entries", fname, raw)
+        # Text extrahieren (limitiert auf die ersten 30 Seiten, anpassbar)
+        try:
+            text = extract_text_from_pdf_bytes(raw, max_pages=30) or ""
+        except Exception as e:
+            text = ""
+        # Auto-Summary optional
+        if _auto_summary_enabled():
+            try:
+                base_summary = text[:20000]  # grobe Begrenzung für Token
+                ssum = summarize(base_summary if base_summary else "[PDF ohne extrahierbaren Text]")
+                sum_name = _summary_name(fname)
+                write_text("summaries", sum_name, ssum)
+            except Exception as e:
+                print(f"[auto-summary:/upload(pdf)] failed for {fname}: {e}")
+        return {"ok": True, "kind": "entries", "filename": fname}
+
+    # Text-Dateien (wie bisher)
     try:
         content = raw.decode("utf-8")
     except Exception:
         content = raw.decode("latin-1", errors="replace")
 
-    fname = file.filename
+    from app.webdav_io import write_text
     write_text(kind, fname, content)
 
     if _auto_summary_enabled() and kind == "entries":
         try:
-            _sum = summarize(content)
+            _sum = summarize(content[:20000])
             sum_name = _summary_name(fname)
             write_text("summaries", sum_name, _sum)
         except Exception as e:
