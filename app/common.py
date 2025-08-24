@@ -1,35 +1,25 @@
-from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+from fastapi import Request, HTTPException
 
-class Settings(BaseSettings):
-    # optionale Flags
-    api_secret: str | None = None
-    enable_public_alias: bool = False
-    auto_summary_on_write: bool | None = None
-    confirm_use_prod_key: bool | None = None
+API_SECRET = os.getenv("API_SECRET", "").strip()
 
-    # Pflichtfelder aus .env
-    inbox_dir: str
-    summaries_dir: str
-    nc_target_folder: str
 
-    webdav_url: str
-    webdav_username: str
-    webdav_password: str
+def _maybe_check_api_secret(request: Request) -> None:
+    """
+    Prüft den API-Secret-Header.
+    Akzeptiert sowohl `X-Api-Secret: <key>` als auch `Authorization: Bearer <key>`.
+    """
+    if not API_SECRET:
+        # kein Secret gesetzt → alles erlauben
+        return
 
-    openai_api_key: str | None = None
-    summary_model: str | None = None
-    summary_words: int | None = None
+    auth = request.headers.get("X-Api-Secret")
 
-    # .env automatisch laden, case-insensitive
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-    )
+    if not auth:
+        # Fallback: Authorization: Bearer <token>
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            auth = auth_header.split(" ", 1)[1]
 
-@lru_cache
-def get_settings() -> "Settings":
-    return Settings()
-
-settings = get_settings()
+    if auth != API_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
