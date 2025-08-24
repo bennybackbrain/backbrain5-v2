@@ -11,3 +11,5 @@ python-multipart>=0.0.9
 
 python-multipart>=0.0.9
 openai>=1.44.0
+
+pypdf>=5.0.0

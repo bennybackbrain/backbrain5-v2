@@ -123,3 +123,42 @@ def list_names(kind: str, limit: int = 200) -> List[str]:
         return []
     names = sorted([p.name for p in base.iterdir() if p.is_file()])
     return names[:limit]
+
+# ==== binary helpers (append) ====
+def write_blob(kind: str, filename: str, data: bytes) -> None:
+    """WebDAV first; fallback local (bytes)."""
+    if _dav_configured():
+        try:
+            cli = _dav_client()
+            _ensure_remote_dir(cli, "/" + _remote_dir(kind).strip("/"))
+            with tempfile.NamedTemporaryFile("wb", delete=False) as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+            try:
+                cli.upload_sync(remote_path=_remote_path(kind, filename), local_path=tmp_path)
+                return
+            finally:
+                try: os.unlink(tmp_path)
+                except Exception: pass
+        except Exception as e:
+            print(f"[webdav_io] write_blob: WebDAV failed ({e}), falling back to local)")
+    base = _base_local(kind); base.mkdir(parents=True, exist_ok=True)
+    (base / filename).write_bytes(data)
+
+def read_blob(kind: str, filename: str) -> bytes:
+    """WebDAV first; fallback local (bytes)."""
+    if _dav_configured():
+        try:
+            cli = _dav_client()
+            with tempfile.NamedTemporaryFile("wb", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                cli.download_sync(remote_path=_remote_path(kind, filename), local_path=tmp_path)
+                return Path(tmp_path).read_bytes()
+            finally:
+                try: os.unlink(tmp_path)
+                except Exception: pass
+        except Exception as e:
+            print(f"[webdav_io] read_blob: WebDAV failed ({e}), falling back to local)")
+    return (_base_local(kind) / filename).read_bytes()
+# ==== end binary helpers ====
