@@ -3,21 +3,16 @@ common.py – zentrale Einstellungen und Hilfsfunktionen
 -----------------------------------------------------
 
 Diese Version ist für PUBLIC MODE gedacht.
-Das heißt:
-- KEIN Secret-Check
-- Custom GPT kann ohne Token auf die API zugreifen
-- Sämtliche Endpunkte sind offen, nur durch Render/Nextcloud abgesichert
-
-Wenn später Auth gebraucht wird, kann _maybe_check_api_secret angepasst werden
-(z.B. mit Header "X-Api-Secret" oder "Authorization: Bearer <token>").
+- Auth ist deaktiviert
+- Custom GPT kann ohne Token zugreifen
+- Unbekannte ENV Variablen werden ignoriert
 """
 
-import os
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Hauptpfade (für Nextcloud / lokale Fallbacks)
+    # Hauptpfade
     inbox_dir: str = "BACKBRAIN5.2_V2/01_inbox"
     summaries_dir: str = "BACKBRAIN5.2_V2/summaries"
 
@@ -28,6 +23,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"   # <<< sorgt dafür, dass zusätzliche ENV Variablen kein Fehler sind
 
 
 settings = Settings()
