@@ -53,11 +53,7 @@ class WriteReq(BaseModel):
 # -----------------------------
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "public": bool(getattr(settings, "enable_public_alias", False)),
-        "auth": bool(os.getenv("API_SECRET") or getattr(settings, "api_secret", None)),
-    }
+    return {"status": "ok", "public": True, "auth": False}
 
 @app.post("/write-file")
 def write_file(req: WriteReq, request: Request):
