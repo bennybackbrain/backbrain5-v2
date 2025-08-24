@@ -28,12 +28,8 @@ def _auto_summary_enabled() -> bool:
     return bool(getattr(settings, "auto_summary_on_write", False))
 
 def _maybe_check_api_secret(request: Request) -> None:
-    secret = os.getenv("API_SECRET") or getattr(settings, "api_secret", None)
-    if not secret:
-        return
-    supplied = request.headers.get("X-Api-Secret")
-    if supplied != secret:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    # HARD DISABLE AUTH (public mode)
+    return
 
 def _summary_name(fname: str) -> str:
     stem = os.path.splitext(fname)[0]
@@ -53,11 +49,7 @@ class WriteReq(BaseModel):
 # -----------------------------
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "public": bool(getattr(settings, "enable_public_alias", False)),
-        "auth": bool(os.getenv("API_SECRET") or getattr(settings, "api_secret", None)),
-    }
+    return {"status": "ok", "public": True, "auth": False}
 
 @app.post("/write-file")
 def write_file(req: WriteReq, request: Request):

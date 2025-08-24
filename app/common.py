@@ -1,20 +1,30 @@
-def _maybe_check_api_secret(request: Request) -> None:
-    """
-    Prüft den API-Secret-Header.
-    Akzeptiert sowohl `X-Api-Secret: <key>` als auch `Authorization: Bearer <key>`.
-    """
-    if not API_SECRET:
-        # kein Secret gesetzt → alles erlauben
-        return
+from typing import Optional
+try:
+    from fastapi import Request
+except Exception:
+    Request = None  # type: ignore
 
-    # Primär: X-Api-Secret
-    auth = request.headers.get("X-Api-Secret")
+def _maybe_check_api_secret(request: Optional["Request"]=None) -> None:
+    # Public mode: auth disabled
+    return
 
-    if not auth:
-        # Fallback: Authorization: Bearer <token>
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            auth = auth_header.split(" ", 1)[1]
+class Settings:
+    def __init__(self):
+        # Feature flags
+        self.enable_public_alias = True
+        self.auto_summary_on_write = False
 
-    if auth != API_SECRET:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        # Local fallback paths (nur für Anzeige)
+        self.inbox_dir = "BACKBRAIN/entries"
+        self.summaries_dir = "BACKBRAIN/summaries"
+
+        # WebDAV config (in Public mode ungenutzt, nur Attribute vorhanden)
+        self.webdav_url = None
+        self.webdav_username = None
+        self.webdav_password = None
+        self.nc_target_folder = "BACKBRAIN"
+
+        # API secret disabled
+        self.api_secret = None
+
+settings = Settings()
